@@ -7,53 +7,61 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from PIL import Image
 import time
+"""
+此文件是工具文件，作用是根据label_info.txt获取label信息，然后根据每条label信息获取到每个image图片。
+并把image图片和label的数据存入到Tfrecord中。
 
-IMAGES_DIR = "./data/train/gen_images"
-IMAGE_HEIGHT = 32
+使用时，只需修改LABEL_INFO_PATH为label_info.txt所在的目录地址，支持多label_info.txt同时读取。但注意label中的image地址正确。
+TF_RECORD_FILE_NAME修改为想要保存的TFrecord文件路径(是期望生成的TFrecord文件所在目录)，
+TF_RECORD_FILE_NAME是期望生成的TFrecord文件名，注意"Train"是训练集的关键字，想做为训练集时TFrecord文件名要带"Train"，Test同理。
+然后运行代码即可。
+
+IMAGE_HEIGHT、IMAGE_WIDTH、CHARS_MAX_NUM需要提前设置好，默认存入的image、label尺寸小于或等于此，
+并且在把image与Label存入tfrecord之前要填充到最大。image不足的pad 255，label不足的pad 0
+"""
+LABEL_INFO_PATH = "/Users/hly/PycharmProjects/HWR_1112/data/test_info" ## label info.txt所在的目录，支持多info.txt读取
+TF_RECORD_FILE_NAME = "TrainTFrecord"      ## 生成的tfrecord文件名
+
+TF_RECORD_FILE_DIR = "./data/tfrecord/"  ## 生成的TFrecord地址
+IMAGE_HEIGHT = 32       ## 在存入tfrecord之前固定Image尺寸，不足padding
 IMAGE_WIDTH = 600
-CHARS_MAX_NUM = 15  ## 15, 单个label中最大字符数
+CHARS_MAX_NUM = 15      ## 15, 单个label中最大字符数，在label存入tfrecord之前固定长度为15，不足padding
 
-TRAIN_DATA_PATH = "./data/tfrecord/TrainsetTFrecord"  ## 训练集地址
-TRAIN_DATA_TOTAL_NUM = 1706 ## Train set数据总数
+def _get_filenames(label_info_dir,key=".txt"):
+    label_filename_list = []
+    for filename in os.listdir(label_info_dir):
+        if filename.endswith(key):
+            label_file_name = join(label_info_dir, filename)
+            label_filename_list.append(label_file_name)
 
-TEST_DATA_PATH = "./data/tfrecord/TestsetTFrecord"
-TEST_DATA_TOTAL_NUM = 0
+    return label_filename_list
 
-def _get_filenames(images_dir):
-    image_file_names = []
-    label_file_name = ""
-    for filename in os.listdir(images_dir):
-        if filename.endswith(".png"):
-            image_file_names.append(join(images_dir, filename))
-        elif filename.endswith(".txt"):
-            label_file_name = join(images_dir, filename)
-
-    return label_file_name
-
-def _parse_label_file(label_file_name):
-    try:
-        if os.path.isfile(label_file_name):
-            infile = open(label_file_name, "r")
-        else:
-            print("并没有这个文件")
-    except IOError:
-        print("输入文件路径错误！")
-    list = infile.readlines()
-    infile.close()
+def _parse_label_file(label_filename_list):
     total_data = []
-
-    for i in range(len(list)):
-        lineStr = list[i]
-        tempList = lineStr.split(",")
-        data = []
-        image_path = tempList[0].replace("['","").replace("'","").strip()
-        data.append(image_path)
-        chars_num = len(tempList) - 1         ## 字符个数
-        data.append(chars_num)
-        for j in range(1,len(tempList)):
-            loc = int(tempList[j].replace("[","").replace("]","").replace(r"\n","").strip())+1 ## 前移一位，留出0作CTC
-            data.append(loc)
-        total_data.append(data)
+    for i in  range(len(label_filename_list)):
+        label_file_name =  label_filename_list[i]
+        print("parse_label_file--label info path=",label_file_name)
+        try:
+            if os.path.isfile(label_file_name):
+                infile = open(label_file_name, "r")
+            else:
+                print("并没有这个文件,path:",label_file_name)
+        except IOError:
+            print("输入文件路径错误！")
+        list = infile.readlines()
+        infile.close()
+        for i in range(len(list)):
+            lineStr = list[i]
+            tempList = lineStr.split(",")
+            data = []
+            image_path = tempList[0].replace("['","").replace("'","").strip()
+            data.append(image_path)
+            chars_num = len(tempList) - 1         ## 字符个数
+            data.append(chars_num)
+            for j in range(1,len(tempList)):
+                loc = int(tempList[j].replace("[","").replace("]","").replace(r"\n","").strip())+1 ## 前移一位，留出0作CTC
+                data.append(loc)
+            total_data.append(data)
     print(total_data)
     print(len(total_data))
     return total_data       ## [图片路径，字符个数， 字符label]
@@ -67,10 +75,6 @@ def show_image(image,chars_num,image_label,image_shape):
 
 def _get_image(path):
     try:
-        # image = plt.imread(path)
-        # # print("image.shape=",image.shape)
-        # # plt.imshow(image)
-        # image = _process_image(image)
         img = Image.open(path)
         ## image process
         ## 调整统一高度
@@ -95,16 +99,16 @@ def _gen_tfrecord_from_data(path,total_data):
     data_dir = path.rsplit("/", 1)[0]
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
-    # path = path +"_%s" % (data_num)
-    # time_str = time.strftime('%m%d%H%M', time.localtime(time.time()))
-    # path = path + "_%s" % (time_str)
+    path = path +"_%s" % (len(total_data))
+    time_str = time.strftime('%m%d', time.localtime(time.time()))
+    path = path + "_%s" % (time_str)
     print(path)
     writer = tf.python_io.TFRecordWriter(path)
     data_num_in_tfrecord = 0
     for i in range(len(total_data)):
         data = total_data[i]
         image_path,chars_num = data[0],data[1]
-        image_path = image_path.replace("./gen_images", IMAGES_DIR, 1)
+        image_path = image_path.replace("./gen_images", LABEL_INFO_PATH, 1)
         image = _get_image(image_path)
         if not isinstance(image,np.ndarray):
             print("Error: 读取的图片为空！ imagePath:",image_path)
@@ -143,13 +147,13 @@ def _gen_tfrecord_from_data(path,total_data):
     writer.close()
     return data_num_in_tfrecord
 
-def main(images_dir,tfrecord_path):
-    label_file_name = _get_filenames(images_dir)
-    total_data = _parse_label_file(label_file_name)
+def main(label_info_path,tfrecord_path):
+    label_filename_list = _get_filenames(label_info_path,key=".txt")
+    total_data = _parse_label_file(label_filename_list)
     data_num = _gen_tfrecord_from_data(tfrecord_path,total_data)
-    print("已生成 ",data_num," 条TFrecord数据，Image数据源:",images_dir," ,生成的TFrecord地址:",tfrecord_path)
+    print("已生成 ",data_num," 条TFrecord数据，label info 数据源:",label_filename_list," ,生成的TFrecord地址:",tfrecord_path)
     return data_num
 
 if __name__ == "__main__":
     # tf_file_queue()
-    data_num = main(IMAGES_DIR,TRAIN_DATA_PATH)
+    data_num = main(LABEL_INFO_PATH,TF_RECORD_FILE_DIR+TF_RECORD_FILE_NAME)

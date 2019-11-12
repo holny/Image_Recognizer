@@ -3,6 +3,10 @@ import tensorflow as tf
 import data_tool as data_tool,inference as inference
 import time
 import os
+"""
+训练模型的主文件，训练模型时请运行这个文件。
+此文件只包含Train部分，网络模型部分(反向传播)在inference.py，InputData(读取TFrecord)部分在data_tool.py
+"""
 
 
 class HW_Recognizer():
@@ -23,7 +27,7 @@ class HW_Recognizer():
             self.IS_NEED_SAVE = True  ## 是否保存训练模型数据
             self.MODEL_PATH = "./ModelTrain"  ## 模型数据保存地址
             self.LOG_PATH = "./SummaryTrain"  ## Tensorboard Log保存地址
-        else:  #### 测试集时参数
+        else:  #### 测试时参数
             self.EPOCHS = data_tool.TEST_EPOCHS
             self.BATCH_SIZE = data_tool.TEST_BATCH_SIZE  ## 对测试集进行验证model，batch_size设置为整个Test数据集大小，epoch=1
             self.IS_NEED_SAVE = False

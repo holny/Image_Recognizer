@@ -2,6 +2,8 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import image_to_tfrecord as data
+import os
+from os.path import join
 
 # CHARS_DICT = util_data.CHARS_DICT  ## 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' ， 字典。
 NUM_CLASSES = 3755 + 1  ## 为空位+1，classes最后一位(classes[26])代表空位
@@ -13,14 +15,20 @@ IMAGE_WIDTH = data.IMAGE_WIDTH
 IMAGE_CHANNELS = 3
 
 TEST_EPOCHS = 2
-TEST_DATA_PATH = data.TEST_DATA_PATH
-TEST_DATA_TOTAL_NUM = data.TEST_DATA_TOTAL_NUM
-TEST_BATCH_SIZE = TEST_DATA_TOTAL_NUM
+
+TEST_BATCH_SIZE = 100
+TF_RECORD_FILE_DIR = data.TF_RECORD_FILE_DIR
 
 TRAIN_EPOCHS = 30  ## epoch
 TRAIN_BATCH_SIZE = 100  ## batch_size
-TRAIN_DATA_PATH = data.TRAIN_DATA_PATH  ## 训练集地址
-TRAIN_DATA_TOTAL_NUM = data.TRAIN_DATA_TOTAL_NUM  ## Train set数据总数
+
+def _get_tfrecord_filenames(tfrecord_dir,key="Test"):
+    label_filename_list = []
+    for filename in os.listdir(tfrecord_dir):
+        if filename.startswith(key) > 0:
+            label_file_name = join(tfrecord_dir, filename)
+            label_filename_list.append(label_file_name)
+    return label_filename_list
 
 def labels_sequence_to_sparse(labels_seq):
     """
@@ -102,20 +110,23 @@ def get_data_from_TFrecord(is_training):
     :param is_training: 决定获取数据是训练集的还是测试集的
     :return: 给tensorflow graph提供数据
     """
+    print("get_data_from_TFrecord---isTraining=", is_training, " ,tfreocrd dir=",TF_RECORD_FILE_DIR)
     if is_training:
         epochs = TRAIN_EPOCHS
         batch_size = TRAIN_BATCH_SIZE
-        file_path = TRAIN_DATA_PATH
+        tfrecord_filenames_list = _get_tfrecord_filenames(TF_RECORD_FILE_DIR,key="Train")
     else:
         epochs = TEST_EPOCHS
         batch_size = TEST_BATCH_SIZE
-        file_path = TEST_DATA_PATH
+        tfrecord_filenames_list = _get_tfrecord_filenames(TF_RECORD_FILE_DIR,key="Test")
     with tf.name_scope("Input_Data"):
-        print("get_data_from_TFrecord---isTraining=", is_training, " ,epochs=", epochs, ",batch_size=", batch_size,
-              " ,file_path=", file_path)
+        print("get_data_from_TFrecord---epochs=",epochs," ,batch_size=",batch_size," ,tfrecord_file_path=", tfrecord_filenames_list)
         # reader = tf.TextLineReader()      # 如果数据集是csv文件用这个
+        if tfrecord_filenames_list == []:
+            print("TFrecord文件不存在，dir:",TF_RECORD_FILE_DIR)
+            exit()
         reader = tf.TFRecordReader()  # 如果数据集是TFRecord用这个
-        file_queue = tf.train.string_input_producer([file_path], num_epochs=epochs, shuffle=False,
+        file_queue = tf.train.string_input_producer(tfrecord_filenames_list, num_epochs=epochs, shuffle=False,
                                                     name="InputData_file_queue")
         # 从TFRecord读取序列化数据。
         _, serialized_record = reader.read(file_queue)
