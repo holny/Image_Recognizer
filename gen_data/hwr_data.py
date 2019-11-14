@@ -2,7 +2,7 @@
 #@Time : 2019-11-11 22:56
 #@Author: xbb1973
 #@File : hwr_data.py
-import chinese_character_recognition.dictionary
+import dictionary
 import os
 from os import walk
 import numpy as np
@@ -11,6 +11,31 @@ from PIL import Image
 import pickle
 import re
 import time
+
+"""
+需要HWDB1.1trn_gnt、HWDB1.1tst_gnt、THUCNnews。THUCNnews用来生成Text语料文本，HWDB从单字Img到行img。
+建立同级目录./data/test    ./data/test_info    ./data/test_text_img  ./data/text_samples 
+./data/train   ./data/train_info    ./data/train_text_img
+
+dictionary.py跟HWDB是一对一的。
+"""
+
+# 此目录下放HWDB1.1trn_gnt、HWDB1.1tst_gnt
+DATA_DIR = './'
+# 语料库路径
+TEXT_DATA_DIR = './THUCNews'
+
+## 图片中字数，可以固定，也可以随机
+# RANDOM_CHAR_MAX_NUM = RDM.randint(5, 16)
+RANDOM_CHAR_MAX_NUM = 1
+
+## 设置生成的图片高度，宽度是HWDB自己生成的。
+IMG_HEIGHT = 32
+## Trai set  Test set
+TRAIN_NUM = 200
+TEST_NUM = 200
+## 字写法
+WRITE_TYPES = 4
 
 # 测试专用，测试无误后可打开生成全部数据
 is_test = False
@@ -21,7 +46,7 @@ RDM = np.random.RandomState(seed=2)
 
 class DataGenerator:
     def __init__(self):
-        self.char_dict = dict(chinese_character_recognition.dictionary.char_dict)
+        self.char_dict = dict(dictionary.char_dict)
 
     def gen_single_character_from_HWDB(self):
         '''
@@ -32,7 +57,7 @@ class DataGenerator:
         '''
         train_counter = 0
         test_counter = 0
-        data_dir = '../../res'
+        data_dir = DATA_DIR
         train_data_dir = os.path.join(data_dir, 'HWDB1.1trn_gnt')
         test_data_dir = os.path.join(data_dir, 'HWDB1.1tst_gnt')
         train_save_path = './data/train/'
@@ -109,7 +134,7 @@ class DataGenerator:
         处理后的文本样本路径text_samples_root_dir
         :return:
         '''
-        text_data_dir = '../../res/THUCNews'
+        text_data_dir = TEXT_DATA_DIR
         text_samples_root_dir = './data/text_samples'
 
         text_data_root, text_data_dirs, text_data_files = self.get_root_dir_file(text_data_dir)
@@ -189,9 +214,9 @@ class DataGenerator:
         '''
         char_dir = str(self.char_dict[char])
         char_dir, _, char_file = self.get_root_dir_file(self.char_img_root + '/' + char_dir)
-        # print(_)
-        # print(char_dir)
-        # print(char_file)
+        print(_)
+        print(char_dir)
+        print(char_file)
         # []
         # ./train/1579
         # ['3323.png', '9543.png', '4552.png']
@@ -260,6 +285,8 @@ class DataGenerator:
                 char_list.append(self.char_dict[char])
                 new_str += char
             except:
+                char_list.append((self.char_dict['式']))
+                new_str += '式'
                 pass
         return new_str, char_list
 
@@ -277,7 +304,7 @@ class DataGenerator:
         self.height = img_height
         self.augment = augment
         self.char_img_root = char_img_root
-        self.char_dict = chinese_character_recognition.dictionary.char_dict
+        self.char_dict = dictionary.char_dict
 
         str, char_list = self.get_char_list(str)
         img = self.get_str_img(str)
@@ -358,9 +385,9 @@ class DataGenerator:
             # 每次从随机文本中从random_text_start_pos开始取random_char_max_num个汉字
             text = self.get_random_text()
             text_len = len(text)
-            random_char_max_num = RDM.randint(5, 16)
+            # random_char_max_num = RDM.randint(5, 16)
             # 设置定长为7
-            # random_char_max_num = 7
+            random_char_max_num = RANDOM_CHAR_MAX_NUM
             random_text_start_pos = RDM.randint(0, text_len)
             str_gen = text[random_text_start_pos:random_text_start_pos+random_char_max_num]
             # print(str_gen)
@@ -414,21 +441,27 @@ if __name__ == '__main__':
     # test_data_dir = os.path.join(data_dir, 'HWDB1.1tst_gnt')
     # train_save_path = './data/train/'
     # test_save_path = './data/test/'
+
+
+    ## 第一要运行这个，然后就可以注释掉下次不用再运行，
     # dg.gen_single_character_from_HWDB()
 
     # text数据解析，到对应api下修改相关路径，相关路径暂时hardcode，不做参数使用
     # text_data_dir = '../../res/THUCNews'
     # text_samples_root_dir = './data/text_samples'
+
+    ## 第一要运行这个，然后就可以注释掉下次不用再运行，
     # dg.handle_text()
 
-    img_height = 32
+    img_height = IMG_HEIGHT
     # 修改生成数据集总大小
-    img_total_size = 2048
-    write_types = 4
+    # img_total_size = 20000
+    write_types = WRITE_TYPES
+
     train_text_imge_path = './data/train_text_img/'
     train_char_img_root = './data/train'
     train_info_path = './data/train_info/info.txt'
-    dg.gen_img_and_info(img_total_size, write_types, train_text_imge_path,
+    dg.gen_img_and_info(TRAIN_NUM, write_types, train_text_imge_path,
                         img_height, train_char_img_root, train_info_path)
 
 
@@ -436,5 +469,5 @@ if __name__ == '__main__':
     test_text_imge_path = './data/test_text_img/'
     test_char_img_root = './data/test'
     test_info_path = './data/test_info/info.txt'
-    dg.gen_img_and_info(img_total_size, write_types, test_text_imge_path,
+    dg.gen_img_and_info(TEST_NUM, write_types, test_text_imge_path,
                         img_height, test_char_img_root, test_info_path)

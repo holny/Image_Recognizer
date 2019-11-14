@@ -3,18 +3,23 @@ import tensorflow as tf
 import data_tool as data_tool,inference as inference
 import time
 import os
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1" # 这一行注释掉就是使用cpu，不注释就是使用gpu。
 """
 训练模型的主文件，训练模型时请运行这个文件。
 此文件只包含Train部分，网络模型部分(反向传播)在inference.py，InputData(读取TFrecord)部分在data_tool.py
 """
-
+# allow_soft_placement 如果指定的设备不存在，允许TF自动分配设备.log_device_placement=True: 是否打印设备分配日志
+config = tf.ConfigProto(allow_soft_placement=True,log_device_placement=True)
+# 按需分配
+config.gpu_options.allow_growth = True
 
 class HW_Recognizer():
     def __init__(self, is_training=True):
         inference.IS_TRAINING = is_training
         self.IS_TRAINING = is_training  ## True:使用Train set， False:使用Test set，并不进行反向
         ## decay learning rate  指数衰减学习率
-        self.START_LEARNING_RATE = 0.001  ## 初始学习率
+        self.START_LEARNING_RATE = 0.01  ## 初始学习率
         self.DECAY_STEPS = 100  ## DECAY_STEPS
         self.DECAY_RATE = 0.96  ## DECAY_RATE
         self.IS_STAIRCASE = False  ## 是否阶梯下降
@@ -65,8 +70,9 @@ class HW_Recognizer():
         global_steps = tf.Variable(0, trainable=False, name="global_steps", dtype=tf.int32)
         ## inference
         cnn_ouput = inference.cnn_network(images)
-        md_lstm_output = inference.mdlstm_network(cnn_ouput)
-        logistics = inference.fc_network(md_lstm_output)
+        logistics = inference.bi_lstmm_network(cnn_ouput)
+        # md_lstm_output = inference.mdlstm_network(cnn_ouput)
+        # logistics = inference.fc_network(md_lstm_output)
         # ctc_loss
         cost = self.compute_cost(labels_sparse=labels_sparse, inputs=logistics, sequence_length=seq_lens)
         # 正则化
@@ -98,7 +104,7 @@ class HW_Recognizer():
         # for test code
         labels = tf.sparse_tensor_to_dense(labels_sparse)
 
-        with tf.Session() as sess:
+        with tf.Session(config=config) as sess:
             print("Train init......") if self.IS_TRAINING else print("Test init......")
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())  ## 有队列迭代读取数据就要初始化本地变量
@@ -171,7 +177,7 @@ class HW_Recognizer():
                                 data_tool.show_one_sample_image(image_1, label_str)
 
                     ## Saver & Tensorboard
-                    if (global_steps_ % 1 == 0):
+                    if (global_steps_ % 3 == 0):
                         # Tensorborad
                         writer.add_summary(merged_, global_step=global_steps_)
                         # Saver保存点

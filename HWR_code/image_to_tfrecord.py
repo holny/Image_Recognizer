@@ -16,16 +16,20 @@ TF_RECORD_FILE_NAME修改为想要保存的TFrecord文件路径(是期望生成�
 TF_RECORD_FILE_NAME是期望生成的TFrecord文件名，注意"Train"是训练集的关键字，想做为训练集时TFrecord文件名要带"Train"，Test同理。
 然后运行代码即可。
 
-IMAGE_HEIGHT、IMAGE_WIDTH、CHARS_MAX_NUM需要提前设置好，默认存入的image、label尺寸小于或等于此，
-并且在把image与Label存入tfrecord之前要填充到最大。image不足的pad 255，label不足的pad 0
+IMAGE_HEIGHT、IMAGE_WIDTH、CHARS_MAX_NUM需要提前设置好，
+IS_RESIZE_IMAGE=True时就会在Image存入TFrecord之前裁剪尺寸(包括宽高，不裁通道)，不足的padding255，超过的resize。
+并且Label存入tfrecord之前要填充到最大CHARS_MAX_NUM。label不足的pad 0，
 """
 LABEL_INFO_PATH = "/Users/hly/PycharmProjects/HWR_1112/data/test_info" ## label info.txt所在的目录，支持多info.txt读取
-TF_RECORD_FILE_NAME = "TrainTFrecord"      ## 生成的tfrecord文件名
+TF_RECORD_FILE_NAME = "TestTFrecord"      ## 生成的tfrecord文件名
 
 TF_RECORD_FILE_DIR = "./data/tfrecord/"  ## 生成的TFrecord地址
-IMAGE_HEIGHT = 32       ## 在存入tfrecord之前固定Image尺寸，不足padding
-IMAGE_WIDTH = 600
-CHARS_MAX_NUM = 15      ## 15, 单个label中最大字符数，在label存入tfrecord之前固定长度为15，不足padding
+
+IS_RESIZE_IMAGE = True             ## 是否重新剪裁图片
+IS_SAVE_AFTER_RESIZE = False        ## 剪裁后的图片是否保存在同级目录，for test。 但是剪裁后的图片还是会送往TFrecord
+IMAGE_HEIGHT = 32       ## IS_RESIZE_IMAGE=True时，在存入tfrecord之前固定Image尺寸，不足padding
+IMAGE_WIDTH = 64
+CHARS_MAX_NUM = 1      ## 15, 单个label中最大字符数，在label存入tfrecord之前固定长度为15，不足padding
 
 def _get_filenames(label_info_dir,key=".txt"):
     label_filename_list = []
@@ -78,27 +82,38 @@ def _get_image(path):
         img = Image.open(path)
         ## image process
         ## 调整统一高度
-        old_size = img.size     ## (w,h)
-        old_width = old_size[0]
-        img = img.resize((old_width,IMAGE_HEIGHT),Image.ANTIALIAS)
-        img = np.array(img)
-        ## 调整填充宽度
-        if old_width<IMAGE_WIDTH:
-            pad_width = IMAGE_WIDTH-old_width
-            img = np.pad(img,((0,0),(0,pad_width),(0, 0)),"constant",constant_values=255)
-        ## 保存调整后的图片
-        image = Image.fromarray(img.astype('uint8')).convert('RGB')
-        new_path = path.replace(".jpg",".png").replace(".jpeg",".png").replace(".png","_format.png")
-        image.save(new_path)
+        if IS_RESIZE_IMAGE:
+            old_size = img.size     ## (w,h)
+            old_width = old_size[0]
+            old_height = old_size[1]
+            ## 调整图片height，不足padding，超出resize
+            if old_height<IMAGE_HEIGHT:
+                pad_height = IMAGE_HEIGHT - old_height
+                img = np.pad(img, ((0, pad_height), (0, 0), (0, 0)), "constant", constant_values=255)
+            elif old_height>IMAGE_HEIGHT:
+                img = img.resize((old_width,IMAGE_HEIGHT),Image.ANTIALIAS)
+            ## 调整图片width，不足padding，超出resize
+            if old_width<IMAGE_WIDTH:           ## 图片宽小于规定宽就Padding
+                pad_width = IMAGE_WIDTH-old_width
+                img = np.pad(img,((0,0),(0,pad_width),(0, 0)),"constant",constant_values=255)
+            elif old_width>IMAGE_WIDTH:         ## 图片宽大于规定宽就resize
+                img = img.resize((IMAGE_WIDTH,IMAGE_HEIGHT),Image.ANTIALIAS)
+            ## 保存调整后的图片
+            if IS_SAVE_AFTER_RESIZE:        ## fot test 保存剪裁后的图片
+                image = Image.fromarray(img.astype('uint8')).convert('RGB')
+                new_path = path.replace(".jpg",".png").replace(".jpeg",".png").replace(".png","_format.png")
+                image.save(new_path)
     except IOError:
         print("Error: Image读取异常，Path:",path)
         return None
+    img = np.array(img)
     return img
 
 def _gen_tfrecord_from_data(path,total_data):
     data_dir = path.rsplit("/", 1)[0]
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
+    path = path + "_%d"%(CHARS_MAX_NUM)
     path = path +"_%s" % (len(total_data))
     time_str = time.strftime('%m%d', time.localtime(time.time()))
     path = path + "_%s" % (time_str)

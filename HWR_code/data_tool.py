@@ -15,12 +15,12 @@ IMAGE_WIDTH = data.IMAGE_WIDTH
 IMAGE_CHANNELS = 3
 
 TEST_EPOCHS = 2
-
 TEST_BATCH_SIZE = 100
 TF_RECORD_FILE_DIR = data.TF_RECORD_FILE_DIR
 
-TRAIN_EPOCHS = 30  ## epoch
-TRAIN_BATCH_SIZE = 100  ## batch_size
+TRAIN_EPOCHS = 300  ## epoch
+TRAIN_BATCH_SIZE = 1000  ## batch_size
+
 
 def _get_tfrecord_filenames(tfrecord_dir,key="Test"):
     label_filename_list = []
@@ -91,11 +91,11 @@ def __decode_TFrecord(serialized_record):
 
         ## 如果是csv文件就 tf.decode_csv()
         image_raw = tf.decode_raw(features["image_raw"], tf.uint8)
-        # image_shape = features["image_shape_raw"]
+        image_shape = features["image_shape_raw"]
         chars_num = tf.cast(features["chars_num_raw"], tf.int32)
         label_raw = features["label_raw"]
 
-        seq_len = CHARS_MAX_NUM
+        seq_len = IMAGE_WIDTH
         # 把Image 归一化
         image = tf.cast(tf.reshape(image_raw, [IMAGE_HEIGHT,IMAGE_WIDTH,IMAGE_CHANNELS]),
                         tf.float32) * (1 / 255) - 0.5

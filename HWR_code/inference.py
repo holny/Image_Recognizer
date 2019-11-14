@@ -1,17 +1,21 @@
 import tensorflow as tf
 import data_tool as data_tool, md_lstm as md_lstm
+from tensorflow.contrib.rnn import BasicLSTMCell
+from tensorflow.contrib import slim
 
 IS_TRAINING = True
-NUM_CLASSES = data_tool.NUM_CLASSES  ## 27 ，为空位+1，classes最后一位(classes[26])代表空位
+NUM_CLASSES = data_tool.NUM_CLASSES  ## 为空位+1，classes最后一位(classes[26])代表空位
 if IS_TRAINING:  ## 训练时的参数
     ## CNN
-    P_KEEP_CONV = 1  ## 卷积层1中Dropout
+    P_KEEP_CONV = 0.9  ## 卷积层1中Dropout
+    P_KEEP_BILSTM = 0.7
     ## FC
-    P_KEEP_FC = 1  ## FC中dropout
+    P_KEEP_FC = 0.8  ## FC中dropout
     IS_SUMMARY = True  ## 是否进行在Tensorboard上显示网络中数据，graphs还是会显示的。
 else:  #### 测试集时参数
     ## CNN
     P_KEEP_CONV = 1  ## 测试集时，不要用Dropout
+    P_KEEP_BILSTM = 1
     ## FC
     P_KEEP_FC = 1
     IS_SUMMARY = False
@@ -21,8 +25,8 @@ CONV_CORE_NUM_1 = 3  ## 卷积层1,卷积核个数
 CONV_CORE_SIZE_1 = [3, 3, 3, CONV_CORE_NUM_1]  ## 卷积层1,卷积核大小
 CONV_STRIDES_1 = [1, 1, 1, 1]  ## 卷积层1,卷积步长，中间两位为准:1x1
 CONV_PADDING_1 = "SAME"  ## 卷积层1,卷积padding,SAME不改变h,w
-POOL_CORE_SIZE_1 = [1, 2, 2, 1]  ## 池化核大小，中间两位为准，2x2
-POOL_STRIDES_1 = [1, 2, 2, 1]  ## 池化，步长，中间两位为准，2x2
+POOL_CORE_SIZE_1 = [1, 1, 1, 1]  ## 池化核大小，中间两位为准，2x2
+POOL_STRIDES_1 = [1, 1, 1, 1]  ## 池化，步长，中间两位为准，2x2
 POOL_PADDING_1 = "SAME"  ## 池化padding类型
 ## MDLSTM layer
 MDLSTM_HIDDEN_NUM_UNITS_1 = 100  ## lstm中神经单元个数
@@ -31,12 +35,13 @@ MDLSTM_HIDDEN_NUM_UNITS_3 = 50
 MDLSTM_FC_NUM_OUTPUTS_1 = 6  ## mdlstm前会进行fully_connected，fc的output单元个数，output.shape=[?,h,w,num_output]
 MDLSTM_FC_NUM_OUTPUTS_2 = 30
 MDLSTM_FC_NUM_OUTPUTS_3 = 50
+## BiLSTM
+BILSTM_HIDDEN_NUM_UNITS_1 = 125
 ## FC layer
 FC_NUM_NUITS_1 = 100  ## 神经单元个数
 ## 正则化regularizer
 IS_REGULARIZER = False  ## 是否开启L2正则化
 REGULARIZATION_RATE = 1e-3  ## 正则化系数
-
 
 
 def get_weight( name, shape):
@@ -156,12 +161,54 @@ def mdlstm_network(inputs):  # beta1.0 :  cnn_output->FC->MDLSTM->FC->MDLSTM->FC
     print("mdlstm_network--mdlstm_layer_output.shape=", mdlstm_layer_output.shape)
     return mdlstm_layer_output  # [?,h,w,classes]
 
+
+def bi_lstmm_network(inputs):
+    shape = inputs.get_shape().as_list()    # [batch, height, width, features]
+    input_h, input_w = shape[1], shape[2]  ## 这个img_h,img_W不是真实image大小，因为经过了卷积与池化
+    print("bi_lstmm_network--inputs.shape=", shape)
+    with tf.variable_scope('Reshaping_cnn'):
+        transposed = tf.transpose(inputs, perm=[0, 2, 1, 3],
+                                  name='transpose')  # [? , width, height, features]
+        conv_reshaped = tf.reshape(transposed, [-1, shape[2], shape[1] * shape[3]],
+                                   name='reshape')  # [? , width, height x features]
+
+    list_n_hidden = [BILSTM_HIDDEN_NUM_UNITS_1, BILSTM_HIDDEN_NUM_UNITS_1]
+
+    with tf.name_scope("BiLSTM_layer1"):
+        # Forward direction cells
+        fw_cell_list = [BasicLSTMCell(nh, forget_bias=1.0) for nh in list_n_hidden]
+        # Backward direction cells
+        bw_cell_list = [BasicLSTMCell(nh, forget_bias=1.0) for nh in list_n_hidden]
+
+        bilstm1_a, _, _ = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(fw_cell_list,
+                                                                        bw_cell_list,
+                                                                        conv_reshaped,
+                                                                        dtype=tf.float32
+                                                                        )
+        # Dropout layer
+        bilstm1_output = tf.nn.dropout(bilstm1_a, keep_prob=P_KEEP_BILSTM)
+        # [? , width, 2*BILSTM_HIDDEN_NUM_UNITS_1]
+
+        with tf.variable_scope('FC_layer1'):
+            shape = bilstm1_output.get_shape().as_list()  # [?, width, 2*BILSTM_HIDDEN_NUM_UNITS_1]
+            fc1_output = slim.layers.linear(bilstm1_output, NUM_CLASSES)  # [batch x width, n_class]
+
+            fc1_output = tf.reshape(fc1_output, [-1, shape[1], NUM_CLASSES],
+                                  name='fc1_out')  # [batch, width, n_classes]
+
+            # Swap batch and time axis for ctc loss
+            logprob = tf.transpose(fc1_output, [1, 0, 2], name='transpose_time_major')  # [width(time), batch, n_classes]
+
+    print("bi_lstmm_network--output.shape=", logprob.get_shape().as_list())
+    return logprob
+
+
 def fc_network(inputs):  # beta1.0 :  mdlstm_output->FC->fc_output
     shape = inputs.get_shape().as_list()
     batch_size = shape[0]
     print("fc_network--inputs.shape=", shape)
     with tf.variable_scope("FC_layer1"):
-        ## [batch_size,max_time_step,MDLSTM_HIDDEN_NUM_UNITS_3]->reshape->[batch_size*max_time_step,num_hidden]
+        ## [batch_size,max_time_step,BILSTM_HIDDEN_NUM_UNITS_1]->reshape->[batch_size*max_time_step,num_hidden]
         fc_inputs = tf.reshape(inputs, [-1, MDLSTM_HIDDEN_NUM_UNITS_3])
 
         fc1_weight = get_weight(name="fc1_weight", shape=[MDLSTM_HIDDEN_NUM_UNITS_3, FC_NUM_NUITS_1])
